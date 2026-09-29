@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  /* Light mode tokens */
+  --color-bg: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F4F1FA;
+  --color-text-primary: #000000;
+  --color-text-secondary: #5F5E5A;
+  --color-border: #E4E1EC;
+  --color-accent: #534AB7;
+  --color-accent-hover: #3C3489;
+  --color-accent-soft: #EEEDFE;
+  --color-positive: #0F6E56;
+  --color-positive-soft: #E1F5EE;
+  --color-warning: #B8860B;
+  --color-danger: #A32D2D;
+}
+
+.dark, [data-theme="dark"] {
+  /* Dark mode tokens */
+  --color-bg: #121014;
+  --color-surface: #1C1A22;
+  --color-surface-muted: #26212E;
+  --color-text-primary: #F5F5F5;
+  --color-text-secondary: #ABA9A4;
+  --color-border: #332E3D;
+  --color-accent: #AFA9EC;
+  --color-accent-hover: #CECBF6;
+  --color-accent-soft: #3C3489;
+  --color-positive: #5DCAA5;
+  --color-positive-soft: #085041;
+  --color-warning: #EF9F27;
+  --color-danger: #F09595;
+}
+
+@theme {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-muted: var(--color-surface-muted);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-border: var(--color-border);
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-positive: var(--color-positive);
+  --color-positive-soft: var(--color-positive-soft);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+
+  --color-primary: var(--color-text-primary);
+  --color-secondary: var(--color-text-secondary);
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  /* Thermal Receipt Print Styles */
+  @media print {
+    body {
+      background: white !important;
+      color: black !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    header, nav, aside, .no-print, [role="navigation"] {
+      display: none !important;
+    }
+
+    #root > *:not(.print-container) {
+      display: none !important;
+    }
+
+    .print-only {
+      display: block !important;
+    }
+
+    .printable-receipt {
+      display: block !important;
+      visibility: visible !important;
+      position: absolute !important;
+      left: 0 !important;
+      top: 0 !important;
+      width: 100% !important;
+      max-width: 80mm !important;
+      margin: 0 auto !important;
+      padding: 4mm !important;
+      background: white !important;
+      color: black !important;
+      font-family: 'JetBrains Mono', monospace, courier !important;
+      font-size: 12px !important;
+      line-height: 1.3 !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+
+    .printable-receipt.size-58mm {
+      max-width: 54mm !important;
+      font-size: 10.5px !important;
+      padding: 2mm !important;
+    }
+
+    .printable-receipt * {
+      visibility: visible !important;
+      color: black !important;
+      border-color: black !important;
+    }
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}

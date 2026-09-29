@@ -1,0 +1,6 @@
+{
+  "name": "Stella Spare Part Ltd - POS",
+  "description": "Simple touch-first Point of Sale and inventory management Progressive Web App for Stella Spare Part Ltd in Ghana.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
