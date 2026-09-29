@@ -15,10 +15,13 @@ class AuthService {
   }: {
     account: 'stella' | 'admin';
     password: string;
-  }): Promise<UserSession> {
+  }): Promise<{ error?: string; user: UserSession }> {
     const target = ACCOUNTS[account];
     if (!target) {
-      throw new Error('Please select an account.');
+      return {
+        error: 'Please select an account.',
+        user: { id: '', name: '', isLoggedIn: false },
+      };
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -26,15 +29,20 @@ class AuthService {
       password,
     });
 
-    if (error) {
+    if (error || !data.user) {
       // Don't leak whether the email exists or the password is wrong — same message either way.
-      throw new Error('Incorrect password. Please try again.');
+      return {
+        error: 'Incorrect password. Please try again.',
+        user: { id: '', name: '', isLoggedIn: false },
+      };
     }
 
     return {
-      id: data.user.id,
-      name: target.name,
-      isLoggedIn: true,
+      user: {
+        id: data.user.id,
+        name: target.name,
+        isLoggedIn: true,
+      },
     };
   }
 
