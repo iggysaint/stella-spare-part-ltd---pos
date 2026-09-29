@@ -1,52 +1,69 @@
+import { supabase } from './supabaseClient';
 import { UserSession } from '../types';
-import { storage } from './storage';
 
-export interface LoginRequest {
-  account: 'stella' | 'admin';
-  password: string;
-}
+// Maps the two account cards on the login screen to their real Supabase login emails.
+// Only these two accounts exist — enforced both here and by the database trigger.
+const ACCOUNTS: Record<'stella' | 'admin', { email: string; name: string }> = {
+  stella: { email: 'stellagyanfi2@gmail.com', name: 'Mama Stella' },
+  admin: { email: 'mr.ignatiusarthur@gmail.com', name: 'Administrator' },
+};
 
 class AuthService {
-  async getSession(): Promise<UserSession> {
-    return storage.getSession();
-  }
-
-  async login(creds: LoginRequest): Promise<{ user: UserSession; error?: string }> {
-    const { account, password } = creds;
-
-    if (!account) {
-      return {
-        user: { id: '', name: '', isLoggedIn: false },
-        error: 'Please select an account (Mama Stella or Administrator).',
-      };
+  async login({
+    account,
+    password,
+  }: {
+    account: 'stella' | 'admin';
+    password: string;
+  }): Promise<UserSession> {
+    const target = ACCOUNTS[account];
+    if (!target) {
+      throw new Error('Please select an account.');
     }
 
-    if (!password || password.length < 6) {
-      return {
-        user: { id: '', name: '', isLoggedIn: false },
-        error: 'Password must be at least 6 characters long.',
-      };
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: target.email,
+      password,
+    });
+
+    if (error) {
+      // Don't leak whether the email exists or the password is wrong — same message either way.
+      throw new Error('Incorrect password. Please try again.');
     }
 
-    const name = account === 'admin' ? 'Admin' : 'Mama Stella';
-
-    const session: UserSession = {
-      id: `usr_${account}`,
-      name,
+    return {
+      id: data.user.id,
+      name: target.name,
       isLoggedIn: true,
     };
-
-    storage.saveSession(session);
-    return { user: session };
   }
 
   async logout(): Promise<void> {
-    const session: UserSession = {
-      id: '',
-      name: '',
-      isLoggedIn: false,
+    await supabase.auth.signOut();
+  }
+
+  // Called on app startup to restore a previous session (the "stay logged in" behaviour).
+  // Always returns a UserSession object — isLoggedIn: false when there's no session —
+  // to match how App.tsx already calls this (session.isLoggedIn with no null check).
+  async getSession(): Promise<UserSession> {
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user;
+    if (!user?.email) {
+      return { id: '', name: '', isLoggedIn: false };
+    }
+
+    const matched = (Object.entries(ACCOUNTS) as [string, (typeof ACCOUNTS)['stella']][]).find(
+      ([, v]) => v.email === user.email
+    );
+    if (!matched) {
+      return { id: '', name: '', isLoggedIn: false }; // shouldn't happen, but fail safe
+    }
+
+    return {
+      id: user.id,
+      name: matched[1].name,
+      isLoggedIn: true,
     };
-    storage.saveSession(session);
   }
 }
 
