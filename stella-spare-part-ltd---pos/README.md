@@ -16,7 +16,7 @@ Handles product sales, receipt printing, and selective customer credit accounts 
 **Requirements:** Node.js 18+
 
 ```bash
-npm install --legacy-peer-deps
+npm install
 ```
 
 Create a `.env` file in the project root:
@@ -60,4 +60,4 @@ Two accounts only — the shop owner and the administrator. New sign-ups are dis
 
 ## Status
 
-In active development.
+Live in production.
