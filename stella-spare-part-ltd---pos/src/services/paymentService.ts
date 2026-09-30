@@ -1,5 +1,5 @@
 import { CreditTransaction } from '../types';
-import { storage } from './storage';
+import { supabase } from './supabaseClient';
 import { customerService } from './customerService';
 import { roundMoney } from '../utils/currency';
 
@@ -32,33 +32,45 @@ class PaymentService {
       throw new Error('Enter a valid payment amount');
     }
 
-    if (roundedAmount > roundMoney(customer.outstanding_balance)) {
-      throw new Error(
-        `Payment cannot be greater than the outstanding balance of GH₵${customer.outstanding_balance.toFixed(2)}.`
-      );
+    // Call the RPC function
+    const { data, error } = await supabase.rpc('record_payment', {
+      p_customer_id: input.customerId,
+      p_amount: roundedAmount,
+      p_reference: 'Cash Payment',
+      p_notes: input.notes?.trim() || null,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Failed to record payment');
     }
 
-    const timestamp = new Date().toISOString();
+    if (!data) {
+      throw new Error('Failed to record payment');
+    }
+
+    // The RPC returns the transaction as JSON
+    const txData = data as any;
     const transaction: CreditTransaction = {
-      id: `ctx_pay_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
-      customer_id: customer.id,
-      sale_id: null,
-      type: 'PAYMENT',
-      amount: roundedAmount,
-      balance_after: 0,
-      payment_method: 'CASH',
-      reference: 'Cash Payment',
-      notes: input.notes?.trim() || null,
-      created_at: timestamp,
+      id: txData.id,
+      customer_id: txData.customer_id,
+      sale_id: txData.sale_id,
+      type: txData.type,
+      amount: Number(txData.amount),
+      balance_after: Number(txData.balance_after),
+      payment_method: txData.payment_method,
+      reference: txData.reference,
+      notes: txData.notes,
+      created_at: txData.created_at,
     };
 
-    const allTx = storage.getCreditTransactions();
-    allTx.push(transaction);
-    storage.saveCreditTransactions(allTx);
+    // Get updated balance from customers_view
+    const { data: customerData } = await supabase
+      .from('customers_view')
+      .select('outstanding_balance')
+      .eq('id', input.customerId)
+      .single();
 
-    const newBalance = await customerService.recalculateBalance(customer.id);
-    transaction.balance_after = newBalance;
-    storage.saveCreditTransactions(allTx);
+    const newBalance = customerData ? Number(customerData.outstanding_balance) : Number(txData.balance_after);
 
     return {
       transaction,
@@ -80,27 +92,46 @@ class PaymentService {
       throw new Error('Enter a valid credit amount');
     }
 
-    const timestamp = input.date ? new Date(input.date).toISOString() : new Date().toISOString();
+    // Call the RPC function
+    const { data, error } = await supabase.rpc('add_credit_purchase', {
+      p_customer_id: input.customerId,
+      p_amount: roundedAmount,
+      p_description: input.description.trim() || 'Parts taken on credit',
+      p_reference: input.reference?.trim() || 'Credit Purchase',
+      p_date: input.date ? new Date(input.date).toISOString() : undefined,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Failed to add credit purchase');
+    }
+
+    if (!data) {
+      throw new Error('Failed to add credit purchase');
+    }
+
+    // The RPC returns the transaction as JSON
+    const txData = data as any;
     const transaction: CreditTransaction = {
-      id: `ctx_cred_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
-      customer_id: customer.id,
-      sale_id: null,
-      type: 'CREDIT_SALE',
-      amount: roundedAmount,
-      balance_after: 0,
-      payment_method: null,
-      reference: input.reference?.trim() || 'Credit Purchase',
-      notes: input.description.trim() || 'Parts taken on credit',
-      created_at: timestamp,
+      id: txData.id,
+      customer_id: txData.customer_id,
+      sale_id: txData.sale_id,
+      type: txData.type,
+      amount: Number(txData.amount),
+      balance_after: Number(txData.balance_after),
+      payment_method: txData.payment_method,
+      reference: txData.reference,
+      notes: txData.notes,
+      created_at: txData.created_at,
     };
 
-    const allTx = storage.getCreditTransactions();
-    allTx.push(transaction);
-    storage.saveCreditTransactions(allTx);
+    // Get updated balance from customers_view
+    const { data: customerData } = await supabase
+      .from('customers_view')
+      .select('outstanding_balance')
+      .eq('id', input.customerId)
+      .single();
 
-    const newBalance = await customerService.recalculateBalance(customer.id);
-    transaction.balance_after = newBalance;
-    storage.saveCreditTransactions(allTx);
+    const newBalance = customerData ? Number(customerData.outstanding_balance) : Number(txData.balance_after);
 
     return {
       transaction,
@@ -109,10 +140,26 @@ class PaymentService {
   }
 
   async getCustomerTransactions(customerId: string): Promise<CreditTransaction[]> {
-    const all = storage.getCreditTransactions();
-    return all
-      .filter((t) => t.customer_id === customerId)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const { data, error } = await supabase
+      .from('credit_transactions_view')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return (data || []).map((tx: any) => ({
+      id: tx.id,
+      customer_id: tx.customer_id,
+      sale_id: tx.sale_id,
+      type: tx.type,
+      amount: Number(tx.amount),
+      balance_after: Number(tx.balance_after),
+      payment_method: tx.payment_method,
+      reference: tx.reference,
+      notes: tx.notes,
+      created_at: tx.created_at,
+    }));
   }
 }
 

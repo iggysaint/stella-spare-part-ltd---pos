@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sale } from '../../types';
 import { formatCedi } from '../../utils/currency';
 import { receiptService } from '../../services/receiptService';
@@ -19,8 +19,11 @@ export const SaleSuccessModal: React.FC<SaleSuccessModalProps> = ({
 }) => {
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [formattedReceipt, setFormattedReceipt] = useState<any>(null);
 
-  const formattedReceipt = receiptService.formatReceipt(sale);
+  useEffect(() => {
+    receiptService.formatReceipt(sale).then(setFormattedReceipt);
+  }, [sale]);
 
   const handlePrint = async () => {
     setIsPrinting(true);

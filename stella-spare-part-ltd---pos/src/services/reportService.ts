@@ -1,4 +1,4 @@
-import { storage } from './storage';
+import { supabase } from './supabaseClient';
 import { isToday, isThisWeek, isThisMonth } from '../utils/date';
 import { Sale } from '../types';
 import { roundMoney } from '../utils/currency';
@@ -23,17 +23,62 @@ export interface ReportSummary {
 
 class ReportService {
   async getReport(period: 'today' | 'week' | 'month' | 'all' = 'today'): Promise<ReportSummary> {
-    const allSales = storage.getSales();
-    const allCustomers = storage.getCustomers();
-
-    let filteredSales: Sale[] = allSales;
+    // Build date filter
+    let startDate: Date | null = null;
     if (period === 'today') {
-      filteredSales = allSales.filter((s) => isToday(s.created_at));
+      const now = new Date();
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     } else if (period === 'week') {
-      filteredSales = allSales.filter((s) => isThisWeek(s.created_at));
+      const now = new Date();
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - now.getDay());
+      startDate.setHours(0, 0, 0, 0);
     } else if (period === 'month') {
-      filteredSales = allSales.filter((s) => isThisMonth(s.created_at));
+      const now = new Date();
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
     }
+
+    // Query sales with items
+    let salesQuery = supabase
+      .from('sales')
+      .select(`
+        *,
+        sale_items (*)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (startDate) {
+      salesQuery = salesQuery.gte('created_at', startDate.toISOString());
+    }
+
+    const { data: sales, error: salesError } = await salesQuery;
+    if (salesError) throw salesError;
+
+    const filteredSales = (sales || []).map((s: any) => ({
+      id: s.id,
+      receipt_number: s.receipt_number,
+      customer_id: s.customer_id,
+      customer_name: s.customer_name,
+      total_amount: Number(s.total_amount),
+      discount_amount: Number(s.discount_amount),
+      payment_method: s.payment_method,
+      amount_received: Number(s.amount_received),
+      amount_paid_now: Number(s.amount_paid_now),
+      change_given: Number(s.change_given),
+      outstanding_credit: Number(s.outstanding_credit),
+      notes: s.notes,
+      created_at: s.created_at,
+      items: (s.sale_items || []).map((item: any) => ({
+        id: item.id,
+        sale_id: item.sale_id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        category: item.category,
+        quantity: item.quantity,
+        unit_price: Number(item.unit_price),
+        total_price: Number(item.total_price),
+      })),
+    }));
 
     const totalSales = filteredSales.reduce((acc, s) => roundMoney(acc + s.total_amount), 0);
     const transactionsCount = filteredSales.length;
@@ -71,8 +116,15 @@ class ReportService {
       .sort((a, b) => b.quantitySold - a.quantitySold)
       .slice(0, 5);
 
-    const totalOutstandingCredit = allCustomers.reduce(
-      (acc, c) => roundMoney(acc + (c.outstanding_balance || 0)),
+    // Get total outstanding credit from customers_view
+    const { data: customers, error: customersError } = await supabase
+      .from('customers_view')
+      .select('outstanding_balance');
+
+    if (customersError) throw customersError;
+
+    const totalOutstandingCredit = (customers || []).reduce(
+      (acc, c) => roundMoney(acc + Number(c.outstanding_balance)),
       0
     );
 

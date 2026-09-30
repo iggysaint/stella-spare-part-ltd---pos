@@ -1,5 +1,5 @@
 import { Sale, CartItem, PaymentMethod, SaleItem, CreditTransaction } from '../types';
-import { storage } from './storage';
+import { supabase } from './supabaseClient';
 import { productService } from './productService';
 import { customerService } from './customerService';
 import { isToday, isThisWeek, isThisMonth } from '../utils/date';
@@ -25,21 +25,65 @@ export interface SalesFilter {
 
 class SalesService {
   async getSales(filter?: SalesFilter): Promise<Sale[]> {
-    let list = storage.getSales();
+    let query = supabase
+      .from('sales')
+      .select(`
+        *,
+        sale_items (*)
+      `)
+      .order('created_at', { ascending: false });
 
     if (filter?.period) {
+      const now = new Date();
+      let startDate: Date;
+
       if (filter.period === 'today') {
-        list = list.filter((s) => isToday(s.created_at));
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       } else if (filter.period === 'week') {
-        list = list.filter((s) => isThisWeek(s.created_at));
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
       } else if (filter.period === 'month') {
-        list = list.filter((s) => isThisMonth(s.created_at));
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      } else {
+        startDate = new Date(0);
       }
+
+      query = query.gte('created_at', startDate.toISOString());
     }
 
     if (filter?.paymentMethod && filter.paymentMethod !== 'ALL') {
-      list = list.filter((s) => s.payment_method === filter.paymentMethod);
+      query = query.eq('payment_method', filter.paymentMethod);
     }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    let list = (data || []).map((s: any) => ({
+      id: s.id,
+      receipt_number: s.receipt_number,
+      customer_id: s.customer_id,
+      customer_name: s.customer_name,
+      total_amount: Number(s.total_amount),
+      discount_amount: Number(s.discount_amount),
+      payment_method: s.payment_method,
+      amount_received: Number(s.amount_received),
+      amount_paid_now: Number(s.amount_paid_now),
+      change_given: Number(s.change_given),
+      outstanding_credit: Number(s.outstanding_credit),
+      notes: s.notes,
+      created_at: s.created_at,
+      items: (s.sale_items || []).map((item: any) => ({
+        id: item.id,
+        sale_id: item.sale_id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        category: item.category,
+        quantity: item.quantity,
+        unit_price: Number(item.unit_price),
+        total_price: Number(item.total_price),
+      })),
+    }));
 
     if (filter?.searchQuery && filter.searchQuery.trim().length > 0) {
       const q = filter.searchQuery.trim().toLowerCase();
@@ -52,13 +96,47 @@ class SalesService {
       });
     }
 
-    // Sort newest first
-    return list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return list;
   }
 
   async getSaleById(id: string): Promise<Sale | null> {
-    const list = storage.getSales();
-    return list.find((s) => s.id === id) || null;
+    const { data, error } = await supabase
+      .from('sales')
+      .select(`
+        *,
+        sale_items (*)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error) return null;
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      receipt_number: data.receipt_number,
+      customer_id: data.customer_id,
+      customer_name: data.customer_name,
+      total_amount: Number(data.total_amount),
+      discount_amount: Number(data.discount_amount),
+      payment_method: data.payment_method,
+      amount_received: Number(data.amount_received),
+      amount_paid_now: Number(data.amount_paid_now),
+      change_given: Number(data.change_given),
+      outstanding_credit: Number(data.outstanding_credit),
+      notes: data.notes,
+      created_at: data.created_at,
+      items: (data.sale_items || []).map((item: any) => ({
+        id: item.id,
+        sale_id: item.sale_id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        category: item.category,
+        quantity: item.quantity,
+        unit_price: Number(item.unit_price),
+        total_price: Number(item.total_price),
+      })),
+    };
   }
 
   async createSale(input: CreateSaleInput): Promise<Sale> {
@@ -66,125 +144,81 @@ class SalesService {
       throw new Error('Your cart is empty. Add parts before checkout.');
     }
 
-    // 1. Verify stock availability for all items
-    const allProducts = storage.getProducts();
-    for (const item of input.items) {
-      const liveProduct = allProducts.find((p) => p.id === item.product.id);
-      if (!liveProduct) {
-        throw new Error(`Part "${item.product.name}" is no longer in inventory.`);
-      }
-      if (item.quantity > liveProduct.stock_quantity) {
-        throw new Error(
-          `Not enough stock for ${item.product.name}. Only ${liveProduct.stock_quantity} available.`
-        );
-      }
-    }
-
-    // 2. Calculate totals using roundMoney
+    // Calculate totals
     const grossTotal = input.items.reduce((sum, i) => roundMoney(sum + roundMoney(i.total_price)), 0);
     const discount = Math.max(0, roundMoney(input.discountAmount || 0));
     const netTotal = Math.max(0, roundMoney(grossTotal - discount));
 
-    // 3. Process payment method specifics
-    let amountReceived = 0;
-    let changeGiven = 0;
-    let outstandingCredit = 0;
-    let amountPaidNow = 0;
-    let customerName: string | null = null;
+    // Prepare items for RPC
+    const items = input.items.map((item) => ({
+      product_id: item.product.id,
+      quantity: item.quantity,
+      unit_price: roundMoney(item.unit_price),
+    }));
+
+    // Prepare RPC parameters
+    const rpcParams: any = {
+      p_items: items,
+      p_payment_method: input.paymentMethod,
+      p_discount: discount,
+    };
 
     if (input.paymentMethod === 'CASH') {
-      amountReceived = roundMoney(input.amountReceived ?? netTotal);
+      const amountReceived = roundMoney(input.amountReceived ?? netTotal);
       if (roundMoney(amountReceived) < roundMoney(netTotal)) {
         throw new Error('Amount received cannot be less than the total sale amount.');
       }
-      changeGiven = Math.max(0, roundMoney(amountReceived - netTotal));
-      amountPaidNow = netTotal;
+      rpcParams.p_amount_received = amountReceived;
     } else if (input.paymentMethod === 'CREDIT') {
       if (!input.customerId) {
         throw new Error('Please select a customer for credit sale.');
       }
-      const customer = await customerService.getCustomerById(input.customerId);
-      if (!customer) {
-        throw new Error('Selected customer account not found.');
-      }
-      customerName = customer.name;
-
-      amountPaidNow = Math.max(0, roundMoney(input.amountPaidNow || 0));
-      if (roundMoney(amountPaidNow) > roundMoney(netTotal)) {
-        throw new Error('Amount paid now cannot exceed the sale total.');
-      }
-
-      outstandingCredit = Math.max(0, roundMoney(netTotal - amountPaidNow));
-      amountReceived = amountPaidNow;
+      rpcParams.p_customer_id = input.customerId;
+      rpcParams.p_amount_paid_now = Math.max(0, roundMoney(input.amountPaidNow || 0));
     }
 
-    // 4. Generate next receipt number
-    const receiptNumber = storage.getNextReceiptNumber();
-    const saleId = `sale_${Date.now()}`;
-    const timestamp = new Date().toISOString();
+    if (input.notes) {
+      rpcParams.p_notes = input.notes;
+    }
 
-    // 5. Construct sale items
-    const saleItems: SaleItem[] = input.items.map((cartItem, idx) => ({
-      id: `sitem_${saleId}_${idx + 1}`,
-      sale_id: saleId,
-      product_id: cartItem.product.id,
-      product_name: cartItem.product.name,
-      category: cartItem.product.category,
-      quantity: cartItem.quantity,
-      unit_price: roundMoney(cartItem.unit_price),
-      total_price: roundMoney(cartItem.quantity * cartItem.unit_price),
-    }));
+    // Call the RPC function
+    const { data, error } = await supabase.rpc('create_sale', rpcParams);
 
-    const newSale: Sale = {
-      id: saleId,
-      receipt_number: receiptNumber,
-      customer_id: input.customerId || null,
-      customer_name: customerName,
-      total_amount: netTotal,
-      discount_amount: discount,
-      payment_method: input.paymentMethod,
-      amount_received: amountReceived,
-      amount_paid_now: amountPaidNow,
-      change_given: changeGiven,
-      outstanding_credit: outstandingCredit,
-      notes: input.notes || '',
-      created_at: timestamp,
-      items: saleItems,
+    if (error) {
+      throw new Error(error.message || 'Failed to create sale');
+    }
+
+    if (!data) {
+      throw new Error('Failed to create sale');
+    }
+
+    // The RPC returns the sale as JSON
+    const saleData = data as any;
+    return {
+      id: saleData.id,
+      receipt_number: saleData.receipt_number,
+      customer_id: saleData.customer_id,
+      customer_name: saleData.customer_name,
+      total_amount: Number(saleData.total_amount),
+      discount_amount: Number(saleData.discount_amount),
+      payment_method: saleData.payment_method,
+      amount_received: Number(saleData.amount_received),
+      amount_paid_now: Number(saleData.amount_paid_now),
+      change_given: Number(saleData.change_given),
+      outstanding_credit: Number(saleData.outstanding_credit),
+      notes: saleData.notes,
+      created_at: saleData.created_at,
+      items: (saleData.items || []).map((item: any) => ({
+        id: item.id,
+        sale_id: item.sale_id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        category: item.category,
+        quantity: item.quantity,
+        unit_price: Number(item.unit_price),
+        total_price: Number(item.total_price),
+      })),
     };
-
-    // 6. Deduct inventory
-    await productService.deductStock(
-      input.items.map((i) => ({ productId: i.product.id, quantity: i.quantity }))
-    );
-
-    // 7. Update credit records if applicable
-    if (input.paymentMethod === 'CREDIT' && input.customerId && outstandingCredit > 0) {
-      const newBal = await customerService.adjustBalance(input.customerId, outstandingCredit);
-
-      // Record credit transaction
-      const ctxs = storage.getCreditTransactions();
-      const creditTx: CreditTransaction = {
-        id: `ctx_${Date.now()}`,
-        customer_id: input.customerId,
-        sale_id: saleId,
-        type: 'CREDIT_SALE',
-        amount: outstandingCredit,
-        balance_after: newBal,
-        payment_method: null,
-        reference: receiptNumber,
-        notes: amountPaidNow > 0 ? `Partial payment of GH₵${amountPaidNow.toFixed(2)} made at checkout` : 'Full sale on credit',
-        created_at: timestamp,
-      };
-      ctxs.push(creditTx);
-      storage.saveCreditTransactions(ctxs);
-    }
-
-    // 8. Save sale record
-    const allSales = storage.getSales();
-    allSales.unshift(newSale);
-    storage.saveSales(allSales);
-
-    return newSale;
   }
 
   async getDashboardStats(): Promise<{
@@ -193,21 +227,32 @@ class SalesService {
     todayCreditGiven: number;
     totalOutstandingCredit: number;
   }> {
-    const allSales = storage.getSales();
-    const allCustomers = storage.getCustomers();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 
-    const todaySales = allSales.filter((s) => isToday(s.created_at));
-    const todaySalesAmount = todaySales.reduce((acc, s) => roundMoney(acc + s.total_amount), 0);
-    const todayTransactionsCount = todaySales.length;
+    // Get today's sales
+    const { data: todaySales, error: salesError } = await supabase
+      .from('sales')
+      .select('total_amount, payment_method, outstanding_credit')
+      .gte('created_at', todayStart);
 
-    // Credit given today (sum of outstanding credit on today's credit sales)
-    const todayCreditGiven = todaySales
+    if (salesError) throw salesError;
+
+    const todaySalesAmount = (todaySales || []).reduce((acc, s) => roundMoney(acc + Number(s.total_amount)), 0);
+    const todayTransactionsCount = (todaySales || []).length;
+    const todayCreditGiven = (todaySales || [])
       .filter((s) => s.payment_method === 'CREDIT')
-      .reduce((acc, s) => roundMoney(acc + s.outstanding_credit), 0);
+      .reduce((acc, s) => roundMoney(acc + Number(s.outstanding_credit)), 0);
 
-    // Total outstanding credit across all customer accounts
-    const totalOutstandingCredit = allCustomers.reduce(
-      (acc, c) => roundMoney(acc + (c.outstanding_balance || 0)),
+    // Get total outstanding credit from customers_view
+    const { data: customers, error: customersError } = await supabase
+      .from('customers_view')
+      .select('outstanding_balance');
+
+    if (customersError) throw customersError;
+
+    const totalOutstandingCredit = (customers || []).reduce(
+      (acc, c) => roundMoney(acc + Number(c.outstanding_balance)),
       0
     );
 

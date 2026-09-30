@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, CreditTransaction } from '../../types';
 import { paymentService } from '../../services/paymentService';
+import { customerService } from '../../services/customerService';
 import { formatCedi, parseCediInput, roundMoney } from '../../utils/currency';
 import { formatReceiptDate } from '../../utils/date';
 import { ConfirmAmountModal } from '../common/ConfirmAmountModal';
-import { 
-  X, 
-  Banknote, 
-  CheckCircle2, 
-  AlertCircle, 
-  Phone, 
+import {
+  X,
+  Banknote,
+  CheckCircle2,
+  AlertCircle,
+  Phone,
   PlusCircle,
   Receipt,
-  FileText
+  FileText,
+  Edit2
 } from 'lucide-react';
 
 interface CustomerDetailModalProps {
@@ -32,8 +34,22 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [currentBalance, setCurrentBalance] = useState(customer.outstanding_balance);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Form Mode: none | 'payment' | 'add_credit'
-  const [activeForm, setActiveForm] = useState<'none' | 'payment' | 'add_credit'>(initialMode);
+  // Form Mode: none | 'payment' | 'add_credit' | 'edit'
+  const [activeForm, setActiveForm] = useState<'none' | 'payment' | 'add_credit' | 'edit'>(
+    initialMode === 'payment' || initialMode === 'add_credit' ? initialMode : 'none'
+  );
+
+  // Edit customer fields
+  const [editName, setEditName] = useState(customer.name);
+  const [editPhone, setEditPhone] = useState(customer.phone);
+  const [editNotes, setEditNotes] = useState(customer.notes || '');
+
+  // Sync edit fields when customer changes
+  useEffect(() => {
+    setEditName(customer.name);
+    setEditPhone(customer.phone);
+    setEditNotes(customer.notes || '');
+  }, [customer]);
 
   // Record Payment fields (Cash only)
   const [paymentAmount, setPaymentAmount] = useState(
@@ -284,6 +300,21 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                   <PlusCircle className="w-4 h-4" />
                   <span>+ Add Credit Entry Manually</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditName(customer.name);
+                    setEditPhone(customer.phone);
+                    setEditNotes(customer.notes || '');
+                    setActiveForm('edit');
+                    setErrorMessage(null);
+                  }}
+                  className="w-full py-2.5 px-4 rounded-lg bg-surface-muted hover:bg-surface text-secondary border border-border font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  <span>Edit Customer Details</span>
+                </button>
               </div>
             )}
 
@@ -427,6 +458,99 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                     className="flex-1 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-surface font-bold text-xs transition"
                   >
                     Save Credit Entry
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Form 3: EDIT CUSTOMER */}
+            {activeForm === 'edit' && (
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setErrorMessage(null);
+
+                if (!editName.trim()) {
+                  setErrorMessage('Customer name is required');
+                  return;
+                }
+
+                try {
+                  await customerService.updateCustomer(customer.id, {
+                    name: editName.trim(),
+                    phone: editPhone.trim() || 'No Phone',
+                    notes: editNotes.trim(),
+                  });
+                  showSuccess('Customer details updated successfully');
+                  setActiveForm('none');
+                  onUpdate();
+                } catch (err: unknown) {
+                  setErrorMessage(err instanceof Error ? err.message : 'Failed to update customer');
+                }
+              }} className="p-4 rounded-lg bg-surface-muted border border-border space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-border">
+                  <h3 className="font-bold text-sm text-primary flex items-center gap-1.5">
+                    <Edit2 className="w-4 h-4 text-accent" />
+                    <span>Edit Customer Details</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setActiveForm('none')}
+                    className="text-xs text-secondary hover:text-primary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-secondary mb-1">
+                    Customer Full Name <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-surface border border-border rounded-lg text-primary text-sm outline-hidden focus:border-accent"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-secondary mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="text"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-surface border border-border rounded-lg text-primary text-sm outline-hidden focus:border-accent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-secondary mb-1">
+                    Notes
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-primary text-xs outline-hidden focus:border-accent"
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveForm('none')}
+                    className="flex-1 py-2.5 rounded-lg border border-border bg-surface text-secondary font-bold text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-surface font-bold text-xs transition"
+                  >
+                    Save Changes
                   </button>
                 </div>
               </form>
