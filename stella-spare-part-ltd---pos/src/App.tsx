@@ -24,6 +24,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedSaleId, setSelectedSaleId] = useState<string | undefined>(undefined);
   const [currentPrintSale, setCurrentPrintSale] = useState<Sale | null>(null);
+  const [formattedPrintReceipt, setFormattedPrintReceipt] = useState<any>(null);
   const [openAddProductModal, setOpenAddProductModal] = useState<boolean>(false);
   const [openAddCustomerModal, setOpenAddCustomerModal] = useState<boolean>(false);
 
@@ -48,6 +49,15 @@ export default function App() {
       window.removeEventListener('stella:print-receipt', handlePrintEvent);
     };
   }, []);
+
+  // Format receipt when currentPrintSale changes
+  useEffect(() => {
+    if (currentPrintSale) {
+      receiptService.formatReceipt(currentPrintSale).then(setFormattedPrintReceipt);
+    } else {
+      setFormattedPrintReceipt(null);
+    }
+  }, [currentPrintSale]);
 
   const handleLogout = async () => {
     await authService.logout();
@@ -152,9 +162,9 @@ export default function App() {
       <BottomNav currentTab={activeTab} onNavigate={handleNavigate} />
 
       {/* Hidden Thermal Receipt Print Element for Browser Print */}
-      {currentPrintSale && (
+      {formattedPrintReceipt && (
         <div className="print-only hidden">
-          <ThermalReceipt receipt={receiptService.formatReceipt(currentPrintSale)} />
+          <ThermalReceipt receipt={formattedPrintReceipt} />
         </div>
       )}
     </div>

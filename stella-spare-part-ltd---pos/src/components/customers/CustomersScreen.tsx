@@ -86,13 +86,13 @@ export const CustomersScreen: React.FC<CustomersScreenProps> = ({
     }
   };
 
-  // Only customers who owe money
-  const debtors = customers.filter((c) => roundMoney(c.outstanding_balance) > 0);
-
   // Total outstanding credit across all customers
   const totalOutstanding = roundMoney(
     customers.reduce((sum, c) => sum + (c.outstanding_balance || 0), 0)
   );
+
+  // Customers who owe money (for display in banner)
+  const debtors = customers.filter((c) => roundMoney(c.outstanding_balance) > 0);
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6">
@@ -148,15 +148,15 @@ export const CustomersScreen: React.FC<CustomersScreenProps> = ({
               <div key={n} className="h-16 bg-surface-muted rounded-lg border border-border animate-pulse" />
             ))}
           </div>
-        ) : debtors.length === 0 ? (
+        ) : customers.length === 0 ? (
           <div className="p-12 text-center space-y-4">
             <Users className="w-12 h-12 text-secondary opacity-40 mx-auto" />
             <div>
-              <h3 className="font-bold text-base text-primary">No credit records</h3>
+              <h3 className="font-bold text-base text-primary">No customers</h3>
               <p className="text-xs text-secondary mt-1">
                 {searchQuery
-                  ? `No debtor found matching "${searchQuery}".`
-                  : 'All customer credit accounts are fully cleared or none created yet.'}
+                  ? `No customer found matching "${searchQuery}".`
+                  : 'No customer accounts created yet.'}
               </p>
             </div>
             <button
@@ -169,7 +169,7 @@ export const CustomersScreen: React.FC<CustomersScreenProps> = ({
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {debtors.map((c) => (
+            {customers.map((c) => (
               <div
                 key={c.id}
                 onClick={() => setActiveCustomer(c)}

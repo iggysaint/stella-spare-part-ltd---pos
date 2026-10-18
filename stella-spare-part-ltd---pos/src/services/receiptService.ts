@@ -1,5 +1,5 @@
 import { Sale, ShopSettings } from '../types';
-import { storage } from './storage';
+import { settingsService } from './settingsService';
 import { formatReceiptDate } from '../utils/date';
 import { formatCedi, roundMoney } from '../utils/currency';
 
@@ -30,8 +30,8 @@ export interface FormattedReceiptData {
 }
 
 class ReceiptService {
-  formatReceipt(sale: Sale, settings?: ShopSettings): FormattedReceiptData {
-    const shop = settings || storage.getSettings();
+  async formatReceipt(sale: Sale, settings?: ShopSettings): Promise<FormattedReceiptData> {
+    const shop = settings || await settingsService.getSettings();
 
     const items = (sale.items || []).map((item) => ({
       name: item.product_name,

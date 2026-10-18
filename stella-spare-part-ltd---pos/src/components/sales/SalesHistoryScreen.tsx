@@ -33,6 +33,7 @@ export const SalesHistoryScreen: React.FC<SalesHistoryScreenProps> = ({
 
   // Selected receipt to view/reprint modal
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+  const [formattedReceipt, setFormattedReceipt] = useState<any>(null);
 
   const loadSales = async () => {
     setIsLoading(true);
@@ -47,6 +48,15 @@ export const SalesHistoryScreen: React.FC<SalesHistoryScreenProps> = ({
       setIsLoading(false);
     }
   };
+
+  // Load formatted receipt when selectedSale changes
+  useEffect(() => {
+    if (selectedSale) {
+      receiptService.formatReceipt(selectedSale).then(setFormattedReceipt);
+    } else {
+      setFormattedReceipt(null);
+    }
+  }, [selectedSale]);
 
   useEffect(() => {
     loadSales();
@@ -265,7 +275,7 @@ export const SalesHistoryScreen: React.FC<SalesHistoryScreenProps> = ({
             {/* Scrollable Receipt Preview */}
             <div className="overflow-y-auto p-4 flex-1 flex justify-center bg-surface-muted">
               <div className="bg-surface rounded-lg p-2 border border-border max-w-[80mm] w-full">
-                <ThermalReceipt receipt={receiptService.formatReceipt(selectedSale)} />
+                {formattedReceipt && <ThermalReceipt receipt={formattedReceipt} />}
               </div>
             </div>
 
